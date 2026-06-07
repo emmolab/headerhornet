@@ -1,0 +1,270 @@
+openapi: 3.0.3
+info:
+  title: HeaderHornet API
+  version: 1.0.0
+  description: Structured RFC822 email header analysis API.
+servers:
+  - url: http://localhost:8080
+    description: Local Docker default
+  - url: https://headerhornet.example.com
+    description: Reverse proxy example
+security: []
+paths:
+  /api/v1/health:
+    get:
+      summary: Service health
+      description: Returns service metadata. This endpoint is intentionally unauthenticated for health checks.
+      operationId: getHealth
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+  /api/v1/analyze:
+    post:
+      summary: Analyze email headers
+      description: Analyze raw RFC822 email headers. Requires an API key only when HEADERHORNET_API_KEY is configured.
+      operationId: analyzeHeaders
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+        - {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnalyzeRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AnalyzeRequest'
+      responses:
+        '200':
+          description: Analysis completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalyzeResponse'
+        '400':
+          description: Missing or invalid headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+    BearerAuth:
+      type: http
+      scheme: bearer
+  schemas:
+    HealthResponse:
+      type: object
+      required: [ok, service, version, endpoints]
+      properties:
+        ok:
+          type: boolean
+          example: true
+        service:
+          type: string
+          example: headerhornet
+        version:
+          type: string
+          example: 1.0.0
+        endpoints:
+          type: array
+          items:
+            type: string
+          example: ['/api/v1/analyze']
+    AnalyzeRequest:
+      type: object
+      required: [headers]
+      properties:
+        headers:
+          type: string
+          description: Raw RFC822 email headers.
+    AnalyzeResponse:
+      type: object
+      required: [ok, analysis]
+      properties:
+        ok:
+          type: boolean
+          example: true
+        analysis:
+          $ref: '#/components/schemas/Analysis'
+    ErrorResponse:
+      type: object
+      required: [ok, error]
+      properties:
+        ok:
+          type: boolean
+          example: false
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum: [unauthorized, missing_headers, invalid_headers]
+            message:
+              type: string
+    Analysis:
+      type: object
+      required: [summary, route, direction, timing, security, headers, warnings]
+      properties:
+        summary:
+          $ref: '#/components/schemas/Summary'
+        route:
+          type: array
+          items:
+            $ref: '#/components/schemas/Hop'
+        direction:
+          $ref: '#/components/schemas/Direction'
+        timing:
+          $ref: '#/components/schemas/Timing'
+        security:
+          $ref: '#/components/schemas/SecurityEvidence'
+        validation:
+          $ref: '#/components/schemas/Validation'
+        reputation:
+          $ref: '#/components/schemas/Reputation'
+        headers:
+          $ref: '#/components/schemas/HeaderGroups'
+        warnings:
+          type: array
+          items:
+            type: string
+    Summary:
+      type: object
+      properties:
+        from: {type: string, nullable: true}
+        to: {type: string, nullable: true}
+        cc: {type: string, nullable: true}
+        subject: {type: string, nullable: true}
+        message_id: {type: string, nullable: true}
+        date: {type: string, nullable: true}
+    Entity:
+      type: object
+      properties:
+        raw: {type: string, nullable: true}
+        host: {type: string, nullable: true}
+        ip: {type: string, nullable: true}
+        public_ip: {type: string, nullable: true}
+        country:
+          type: object
+          nullable: true
+          properties:
+            iso_code: {type: string}
+            country_name: {type: string}
+    Hop:
+      type: object
+      properties:
+        hop: {type: integer, example: 1}
+        from: {$ref: '#/components/schemas/Entity'}
+        by: {$ref: '#/components/schemas/Entity'}
+        with: {type: string, nullable: true}
+        time_utc: {type: string, format: date-time, nullable: true}
+        delay_seconds: {type: integer, example: 270}
+        delay_human: {type: string, example: '4 min, 30 sec'}
+        raw: {type: string}
+    Direction:
+      type: object
+      properties:
+        origin: {$ref: '#/components/schemas/Entity'}
+        destination: {$ref: '#/components/schemas/Entity'}
+        hop_count: {type: integer}
+        received_path:
+          type: array
+          items:
+            type: object
+            properties:
+              hop: {type: integer}
+              from: {type: string, nullable: true}
+              by: {type: string, nullable: true}
+        suspected_source_ip: {type: string, nullable: true}
+        suspected_source_host: {type: string, nullable: true}
+    Timing:
+      type: object
+      properties:
+        total_delay_seconds: {type: integer}
+        total_delay_human: {type: string}
+        delayed: {type: boolean}
+    SecurityEvidence:
+      type: object
+      properties:
+        spf:
+          type: object
+          properties:
+            verdict: {type: string, nullable: true}
+            headers:
+              type: array
+              items: {type: string}
+        dkim:
+          type: object
+          properties:
+            verdict: {type: string, nullable: true}
+            present: {type: boolean}
+            headers:
+              type: array
+              items: {type: string}
+        dmarc:
+          type: object
+          properties:
+            verdict: {type: string, nullable: true}
+        arc:
+          type: object
+          properties:
+            verdict: {type: string, nullable: true}
+            headers:
+              type: array
+              items: {type: string}
+        authentication_results:
+          type: array
+          items: {type: string}
+
+    Validation:
+      type: object
+      description: MXToolbox-style live/domain validation for DMARC, SPF, DKIM, alignment, and DMARC compliance.
+      additionalProperties: true
+    Reputation:
+      type: object
+      description: Per-relay IP blacklist/DNSBL status.
+      properties:
+        checked:
+          type: boolean
+        relay_ips:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+    HeaderGroups:
+      type: object
+      properties:
+        raw:
+          type: array
+          items: {$ref: '#/components/schemas/HeaderItem'}
+        security:
+          type: array
+          items: {$ref: '#/components/schemas/HeaderItem'}
+        x:
+          type: array
+          items: {$ref: '#/components/schemas/HeaderItem'}
+        other:
+          type: array
+          items: {$ref: '#/components/schemas/HeaderItem'}
+    HeaderItem:
+      type: object
+      properties:
+        name: {type: string}
+        value: {type: string}

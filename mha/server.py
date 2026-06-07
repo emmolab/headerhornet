@@ -5,6 +5,7 @@ from flask import request
 
 from email.parser import HeaderParser
 import argparse
+import hmac
 import os
 import re
 
@@ -95,6 +96,40 @@ def _headers_from_request():
     return headers.strip() if isinstance(headers, str) else ''
 
 
+def _configured_api_key():
+    return os.environ.get('HEADERHORNET_API_KEY', '').strip()
+
+
+def _submitted_api_key():
+    header_key = request.headers.get('X-API-Key', '').strip()
+    if header_key:
+        return header_key
+
+    authorization = request.headers.get('Authorization', '').strip()
+    scheme, _, token = authorization.partition(' ')
+    if scheme.lower() == 'bearer' and token:
+        return token.strip()
+    return ''
+
+
+def _require_api_key():
+    expected = _configured_api_key()
+    if not expected:
+        return None
+
+    submitted = _submitted_api_key()
+    if submitted and hmac.compare_digest(submitted, expected):
+        return None
+
+    return jsonify({
+        'ok': False,
+        'error': {
+            'code': 'unauthorized',
+            'message': 'A valid API key is required.',
+        },
+    }), 401
+
+
 @app.route('/', methods=['GET', 'POST'])
 def index():
     if request.method == 'POST':
@@ -108,7 +143,7 @@ def index():
         return render_template(
             'index.html', data=data, delayed=analysis['timing']['delayed'],
             summary=summary, n=parsed_headers, chart=chart,
-            security_headers=security_headers)
+            security_headers=security_headers, analysis=analysis)
     return render_template('index.html')
 
 
@@ -124,6 +159,10 @@ def api_health():
 
 @app.route('/api/v1/analyze', methods=['POST'])
 def api_analyze():
+    auth_error = _require_api_key()
+    if auth_error:
+        return auth_error
+
     headers = _headers_from_request()
     if not headers:
         return jsonify({

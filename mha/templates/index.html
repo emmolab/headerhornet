@@ -65,6 +65,7 @@
         <div class="well well-lg">
             <div class="row" style="padding-top: 15px;">
                 <div class="col-md-6">
+                    <h1 style="margin-top:0;">Header Analyzed</h1>
                     <dl class="dl-horizontal">
                         <dt>Subject</dt>
                         <dd>{{ summary.Subject }}</dd>
@@ -84,49 +85,111 @@
                 </div>
                 {% if delayed %}
                 <div class="col-md-6">
-                    {# <div id="chart_div"></div>#}
                     {{ chart|safe }}
                 </div>
                 {% endif %}
             </div>
         </div>
-        <table id="table" data-toggle="table" data-search="true" data-show-columns="true" data-striped="true"
-            data-show-toggle="true" data-show-refresh="true" data-page-size="13" data-sort-name="hop"
-            data-sort-order="asc">
-            <thead style="background-color: #333333;color:#d4d4d4;">
-                <tr>
-                    <th data-field="hop" data-sortable="true">Hop</th>
-                    <th data-sortable="true">From</th>
-                    <th data-sortable="true">By</th>
-                    <th data-sortable="true">With</th>
-                    <th data-sortable="true">Time (UTC)</th>
-                    <th data-sortable="true">Delay</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for k, v in data.items() %}
-                <tr>
-                    <td>{{ k }}</td>
-                    <td>{{ v.Direction.0 }}{% if country(v.Direction.0).iso_code %}<span class="pull-right"><a href="#"
-                                data-toggle="tooltip" data-placement="top"
-                                title="{{country(v.Direction.0).country_name}}"><i
-                                    class="flag flag-{{country(v.Direction.0).iso_code}}"></i></a></span>{% endif %}
-                    </td>
-                    <td>{{ v.Direction.1 }}{% if country(v.Direction.1).iso_code %}<span class="pull-right"><a href="#"
-                                data-toggle="tooltip" data-placement="top"
-                                title="{{country(v.Direction.1).country_name}}"><i
-                                    class="flag flag-{{country(v.Direction.1).iso_code}}"></i></a></span>{% endif %}
-                    </td>
-                    <td>{{ v.Direction.2 }}</td>
-                    <td>{{ v.Time }}</td>
-                    <td>
-                        {% if duration(v.Delay) %} {{ duration(v.Delay) }} {% else %} {% if loop.first %} *
-                        {% else %}0{% endif %} {% endif %}
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+
+        <div class="panel panel-default">
+            <div class="panel-heading">
+                <h3 class="panel-title">Delivery Information</h3>
+            </div>
+            <div class="panel-body">
+                <div class="row">
+                    <div class="col-md-3">
+                        <strong>DMARC Compliant</strong><br>
+                        {% if analysis.validation.dmarc_compliance.compliant %}
+                        <span class="label label-success"><i class="fas fa-check-circle"></i> Pass</span>
+                        {% else %}
+                        <span class="label label-danger"><i class="fas fa-exclamation-circle"></i> Problem</span>
+                        {% endif %}
+                    </div>
+                    <div class="col-md-3">
+                        <strong>SPF Alignment</strong><br>
+                        {% if analysis.validation.alignment.spf.aligned %}<span class="label label-success">Aligned</span>{% else %}<span class="label label-warning">Not aligned</span>{% endif %}
+                    </div>
+                    <div class="col-md-3">
+                        <strong>SPF Authenticated</strong><br>
+                        {% if analysis.validation.dmarc_compliance.checks.spf_authenticated %}<span class="label label-success">Authenticated</span>{% else %}<span class="label label-warning">Not authenticated</span>{% endif %}
+                    </div>
+                    <div class="col-md-3">
+                        <strong>DKIM Alignment/Auth</strong><br>
+                        {% if analysis.validation.alignment.dkim.aligned and analysis.validation.dmarc_compliance.checks.dkim_authenticated %}<span class="label label-success">Aligned + authenticated</span>{% else %}<span class="label label-warning">Review</span>{% endif %}
+                    </div>
+                </div>
+                {% if analysis.warnings %}
+                <hr>
+                <ul class="list-unstyled text-warning" style="margin-bottom:0;">
+                    {% for warning in analysis.warnings %}
+                    <li><i class="fas fa-exclamation-triangle"></i> {{ warning }}</li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="panel panel-default">
+            <div class="panel-heading">
+                <h3 class="panel-title">Relay Information</h3>
+            </div>
+            <div class="panel-body">
+                <strong>Received Delay:</strong> {{ analysis.timing.total_delay_human }}
+            </div>
+            <div class="table-responsive">
+                <table id="table" class="table table-bordered table-striped" data-toggle="table" data-search="true" data-show-columns="true"
+                    data-show-toggle="true" data-show-refresh="true" data-page-size="13" data-sort-name="hop"
+                    data-sort-order="asc">
+                    <thead style="background-color: #333333;color:#d4d4d4;">
+                        <tr>
+                            <th data-field="hop" data-sortable="true">Hop</th>
+                            <th data-sortable="true">Delay</th>
+                            <th data-sortable="true">From</th>
+                            <th data-sortable="true">By</th>
+                            <th data-sortable="true">With</th>
+                            <th data-sortable="true">Time (UTC)</th>
+                            <th data-sortable="true">Blacklist</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for hop in analysis.route %}
+                        <tr>
+                            <td>{{ hop.hop }}</td>
+                            <td>{% if hop.delay_seconds %}{{ hop.delay_human }}{% elif loop.first %}*{% else %}0 sec{% endif %}</td>
+                            <td>{{ hop.from.raw }}{% if country(hop.from.raw).iso_code %}<span class="pull-right"><a href="#" data-toggle="tooltip" data-placement="top" title="{{country(hop.from.raw).country_name}}"><i class="flag flag-{{country(hop.from.raw).iso_code}}"></i></a></span>{% endif %}</td>
+                            <td>{{ hop.by.raw }}{% if country(hop.by.raw).iso_code %}<span class="pull-right"><a href="#" data-toggle="tooltip" data-placement="top" title="{{country(hop.by.raw).country_name}}"><i class="flag flag-{{country(hop.by.raw).iso_code}}"></i></a></span>{% endif %}</td>
+                            <td>{{ hop.with or '' }}</td>
+                            <td>{{ hop.time_utc or '' }}</td>
+                            <td>
+                                {% if hop.blacklist.status == 'listed' %}
+                                <span class="label label-danger">Listed</span>
+                                {% elif hop.blacklist.status == 'not_listed' %}
+                                <span class="label label-success">Not blacklisted</span>
+                                {% else %}
+                                <span class="label label-default">Not checked</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="panel panel-default" style="margin-top: 10px;">
+            <div class="panel-heading">
+                <h3 class="panel-title">SPF and DKIM Information</h3>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-bordered">
+                    <tr><th>DMARC lookup</th><td>{{ analysis.validation.dmarc.query }} — {% if analysis.validation.dmarc.record_found %}<span class="label label-success">record found</span> policy: {{ analysis.validation.dmarc.policy or 'unspecified' }}{% else %}<span class="label label-danger">no record found</span>{% endif %}</td></tr>
+                    <tr><th>SPF lookup</th><td>{{ analysis.validation.spf.domain }}{% if analysis.validation.spf.source_ip %}:{{ analysis.validation.spf.source_ip }}{% endif %} — {% if analysis.validation.spf.record_found %}<span class="label label-success">record found</span>{% else %}<span class="label label-danger">no record found</span>{% endif %}{% if analysis.validation.spf.source_ip_authorized is not none %}; source IP authorized: {{ analysis.validation.spf.source_ip_authorized }}{% endif %}</td></tr>
+                    {% for selector in analysis.validation.dkim.selectors %}
+                    <tr><th>DKIM selector</th><td>{{ selector.query }} — {% if selector.record_found %}<span class="label label-success">record found</span>{% else %}<span class="label label-danger">no record found</span>{% endif %}</td></tr>
+                    {% endfor %}
+                </table>
+            </div>
+        </div>
         <div class="panel panel-default" style="margin-top: 10px;">
             <!-- Default panel contents -->
             <div class="panel-heading">

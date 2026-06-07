@@ -35,7 +35,59 @@ def test_analyze_api_rejects_missing_headers():
     assert 'headers' in payload['error']['message']
 
 
-def test_health_api_reports_service():
+def test_analyze_api_allows_requests_without_api_key_when_auth_not_configured(monkeypatch):
+    monkeypatch.delenv('HEADERHORNET_API_KEY', raising=False)
+    client = app.test_client()
+
+    response = client.post('/api/v1/analyze', json={'headers': SAMPLE_HEADERS})
+
+    assert response.status_code == 200
+    assert response.get_json()['ok'] is True
+
+
+def test_analyze_api_rejects_missing_api_key_when_auth_configured(monkeypatch):
+    monkeypatch.setenv('HEADERHORNET_API_KEY', 'secret-test-key')
+    client = app.test_client()
+
+    response = client.post('/api/v1/analyze', json={'headers': SAMPLE_HEADERS})
+
+    assert response.status_code == 401
+    payload = response.get_json()
+    assert payload['ok'] is False
+    assert payload['error']['code'] == 'unauthorized'
+    assert 'API key' in payload['error']['message']
+
+
+def test_analyze_api_accepts_x_api_key_header(monkeypatch):
+    monkeypatch.setenv('HEADERHORNET_API_KEY', 'secret-test-key')
+    client = app.test_client()
+
+    response = client.post(
+        '/api/v1/analyze',
+        json={'headers': SAMPLE_HEADERS},
+        headers={'X-API-Key': 'secret-test-key'},
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()['ok'] is True
+
+
+def test_analyze_api_accepts_bearer_token(monkeypatch):
+    monkeypatch.setenv('HEADERHORNET_API_KEY', 'secret-test-key')
+    client = app.test_client()
+
+    response = client.post(
+        '/api/v1/analyze',
+        json={'headers': SAMPLE_HEADERS},
+        headers={'Authorization': 'Bearer secret-test-key'},
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()['ok'] is True
+
+
+def test_health_api_reports_service_without_api_key(monkeypatch):
+    monkeypatch.setenv('HEADERHORNET_API_KEY', 'secret-test-key')
     client = app.test_client()
 
     response = client.get('/api/v1/health')
@@ -44,3 +96,18 @@ def test_health_api_reports_service():
     payload = response.get_json()
     assert payload['ok'] is True
     assert payload['service'] == 'headerhornet'
+
+
+def test_browser_report_includes_mxtoolbox_style_sections(monkeypatch):
+    monkeypatch.delenv('HEADERHORNET_API_KEY', raising=False)
+    client = app.test_client()
+
+    response = client.post('/', data={'headers': SAMPLE_HEADERS})
+
+    assert response.status_code == 200
+    page = response.get_data(as_text=True)
+    assert 'Delivery Information' in page
+    assert 'Relay Information' in page
+    assert 'SPF and DKIM Information' in page
+    assert 'DMARC Compliant' in page
+    assert 'Blacklist' in page

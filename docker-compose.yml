@@ -12,6 +12,7 @@ services:
       - "${HEADERHORNET_CONTAINER_PORT:-8080}"
     environment:
       HEADERHORNET_DEBUG: ${HEADERHORNET_DEBUG:-0}
+      HEADERHORNET_API_KEY: ${HEADERHORNET_API_KEY:-}
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:${HEADERHORNET_CONTAINER_PORT:-8080}/api/v1/health >/dev/null"]
       interval: 30s

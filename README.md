@@ -20,6 +20,10 @@ This project is based on the upstream CyberDefenders Email Header Analyzer proje
 
 ## API v1
 
+Full API documentation is available in [`docs/api-v1.md`](docs/api-v1.md), and an OpenAPI 3.0 spec is available in [`docs/openapi.yml`](docs/openapi.yml).
+
+API key authentication is optional. Set `HEADERHORNET_API_KEY` to require clients to send either `X-API-Key` or `Authorization: Bearer` on `POST /api/v1/analyze`. Leave it empty for unauthenticated local-only deployments.
+
 ### Health
 
 ```bash
@@ -64,9 +68,13 @@ The API returns:
 - `route`: ordered hop-by-hop delivery path from likely origin toward destination.
 - `direction`: origin/destination, hop count, path, suspected source IP/host.
 - `timing`: total delay and human-readable delay.
-- `security`: SPF, DKIM, DMARC, ARC, and Authentication-Results evidence.
+- `validation`: MXToolbox-style live/domain validation for DMARC, SPF, DKIM selector DNS, SPF/DKIM alignment, and DMARC compliance.
+- `reputation`: per-relay IP blacklist/DNSBL status.
 - `headers`: grouped raw, security, X-, and other headers.
-- `warnings`: parse limitations, such as missing Received headers.
+- `warnings`: parse, validation, and reputation limitations.
+
+See [`docs/api-example-enriched.md`](docs/api-example-enriched.md) for an enriched API response example.
+
 
 ## Installation
 

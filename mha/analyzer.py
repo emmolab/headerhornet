@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from email.parser import HeaderParser
+from email.utils import parseaddr
 from datetime import timezone
+import ipaddress
 import re
 from typing import Any, Dict, Iterable, List, Optional
 
@@ -199,7 +201,258 @@ def _headers_by_group(parsed) -> Dict[str, List[Dict[str, str]]]:
     return grouped
 
 
-def analyze_headers(raw_headers: str, country_lookup=None) -> Dict[str, Any]:
+def _domain_from_address(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return None
+    _, address = parseaddr(value)
+    if "@" not in address:
+        return None
+    domain = address.rsplit("@", 1)[1].strip().lower().strip(".>")
+    return domain or None
+
+
+def _domain_from_auth_results(text: str, key: str) -> Optional[str]:
+    match = re.search(rf"\b{re.escape(key)}\s*=\s*([^\s;]+)", text or "", re.I)
+    if match:
+        value = match.group(1).strip().lower()
+        if "@" in value:
+            return value.rsplit("@", 1)[1]
+        return value
+    return None
+
+
+def _spf_ip_from_text(text: str) -> Optional[str]:
+    match = re.search(r"\bdesignates\s+([^\s)]+)", text or "", re.I)
+    if match:
+        ip_match = IPV4_RE.search(match.group(1))
+        if ip_match:
+            return ip_match.group(1)
+    return _first_public_ip(text or "")
+
+
+def _default_dns_lookup(name: str, record_type: str) -> List[str]:
+    try:
+        import dns.resolver  # type: ignore
+    except Exception:
+        return []
+
+    resolver = dns.resolver.Resolver()
+    resolver.lifetime = 2.0
+    resolver.timeout = 1.0
+    answers = resolver.resolve(name, record_type)
+    records = []
+    for answer in answers:
+        if record_type.upper() == 'TXT':
+            records.append(''.join(part.decode('utf-8', errors='replace') for part in answer.strings))
+        else:
+            records.append(str(answer).rstrip('.'))
+    return records
+
+
+def _txt_lookup(name: Optional[str], dns_lookup=None) -> List[str]:
+    if not name:
+        return []
+    dns_lookup = dns_lookup or _default_dns_lookup
+    try:
+        records = dns_lookup(name.rstrip('.').lower(), 'TXT')
+    except Exception:
+        return []
+    normalized = []
+    for record in records or []:
+        if isinstance(record, (list, tuple)):
+            record = ''.join(str(part) for part in record)
+        normalized.append(str(record).strip().strip('"'))
+    return normalized
+
+
+def _parse_tag_value_record(record: Optional[str]) -> Dict[str, str]:
+    tags = {}
+    for part in (record or '').split(';'):
+        if '=' not in part:
+            continue
+        key, value = part.split('=', 1)
+        tags[key.strip().lower()] = value.strip()
+    return tags
+
+
+def _dkim_signatures(parsed) -> List[Dict[str, Any]]:
+    selectors = []
+    for header in parsed.get_all('DKIM-Signature') or []:
+        tags = _parse_tag_value_record(header)
+        domain = tags.get('d')
+        selector = tags.get('s')
+        selectors.append({
+            'domain': domain.lower() if domain else None,
+            'selector': selector,
+            'query': f"{selector}._domainkey.{domain}".lower() if selector and domain else None,
+            'header': header,
+        })
+    return selectors
+
+
+def _spf_record_authorizes_ip(record: str, source_ip: Optional[str]) -> Optional[bool]:
+    if not record or not source_ip:
+        return None
+    try:
+        ip = ipaddress.ip_address(source_ip)
+    except ValueError:
+        return None
+    matched_any_ip_mechanism = False
+    for token in record.split():
+        token = token.strip()
+        qualifier = token[0] if token and token[0] in '+-~?' else '+'
+        mechanism = token[1:] if token and token[0] in '+-~?' else token
+        if mechanism.startswith('ip4:'):
+            matched_any_ip_mechanism = True
+            cidr = mechanism[4:]
+            try:
+                network = ipaddress.ip_network(cidr, strict=False)
+            except ValueError:
+                continue
+            if ip in network:
+                return qualifier == '+'
+    return False if matched_any_ip_mechanism else None
+
+
+DNSBL_ZONES = [
+    'zen.spamhaus.org',
+    'bl.spamcop.net',
+    'b.barracudacentral.org',
+]
+
+
+def _default_blacklist_lookup(ip: str) -> Dict[str, Any]:
+    try:
+        address = ipaddress.ip_address(ip)
+    except ValueError:
+        return {'ip': ip, 'listed': None, 'zones': [], 'status': 'invalid_ip'}
+    if address.version != 4 or not address.is_global:
+        return {'ip': ip, 'listed': False, 'zones': [], 'status': 'not_listed'}
+
+    reversed_ip = '.'.join(reversed(ip.split('.')))
+    listed_zones = []
+    for zone in DNSBL_ZONES:
+        query = f'{reversed_ip}.{zone}'
+        try:
+            records = _default_dns_lookup(query, 'A')
+        except Exception:
+            records = []
+        if records:
+            listed_zones.append({'zone': zone, 'records': records})
+    return {
+        'ip': ip,
+        'listed': bool(listed_zones),
+        'zones': listed_zones,
+        'status': 'listed' if listed_zones else 'not_listed',
+    }
+
+
+def _build_validation(parsed, summary: Dict[str, Any], direction: Dict[str, Any], security: Dict[str, Any], dns_lookup=None) -> Dict[str, Any]:
+    auth_text = "\n".join(parsed.get_all('Authentication-Results') or [])
+    received_spf_text = "\n".join(parsed.get_all('Received-SPF') or [])
+    header_from_domain = _domain_from_address(summary.get('from'))
+    mailfrom_domain = _domain_from_auth_results(auth_text, 'smtp.mailfrom') or _domain_from_address(summary.get('from'))
+    spf_source_ip = _spf_ip_from_text(received_spf_text) or direction.get('suspected_source_ip')
+
+    dmarc_query = f"_dmarc.{header_from_domain}" if header_from_domain else None
+    dmarc_records = [r for r in _txt_lookup(dmarc_query, dns_lookup) if r.lower().startswith('v=dmarc1')]
+    dmarc_tags = _parse_tag_value_record(dmarc_records[0] if dmarc_records else None)
+
+    spf_records = [r for r in _txt_lookup(mailfrom_domain, dns_lookup) if r.lower().startswith('v=spf1')]
+    spf_authorized = _spf_record_authorizes_ip(spf_records[0], spf_source_ip) if spf_records else None
+
+    dkim_selectors = []
+    for signature in _dkim_signatures(parsed):
+        records = [r for r in _txt_lookup(signature['query'], dns_lookup) if r.lower().startswith('v=dkim1')]
+        dkim_selectors.append({
+            **signature,
+            'record_found': bool(records),
+            'records': records,
+        })
+
+    spf_verdict = security.get('spf', {}).get('verdict')
+    dkim_verdict = security.get('dkim', {}).get('verdict')
+    dmarc_verdict = security.get('dmarc', {}).get('verdict')
+    spf_authenticated = spf_verdict == 'pass' or spf_authorized is True
+    dkim_authenticated = dkim_verdict == 'pass'
+    dkim_domains = [item.get('domain') for item in dkim_selectors if item.get('domain')]
+    spf_aligned = bool(header_from_domain and mailfrom_domain and header_from_domain == mailfrom_domain)
+    dkim_aligned = bool(header_from_domain and header_from_domain in dkim_domains)
+    compliant = bool(dmarc_records) and (dmarc_verdict == 'pass' or ((spf_authenticated and spf_aligned) or (dkim_authenticated and dkim_aligned)))
+
+    return {
+        'header_from_domain': header_from_domain,
+        'dmarc': {
+            'query': dmarc_query,
+            'record_found': bool(dmarc_records),
+            'records': dmarc_records,
+            'policy': dmarc_tags.get('p'),
+            'subdomain_policy': dmarc_tags.get('sp'),
+            'rua': dmarc_tags.get('rua'),
+            'ruf': dmarc_tags.get('ruf'),
+        },
+        'spf': {
+            'domain': mailfrom_domain,
+            'source_ip': spf_source_ip,
+            'record_found': bool(spf_records),
+            'records': spf_records,
+            'source_ip_authorized': spf_authorized,
+            'header_verdict': spf_verdict,
+        },
+        'dkim': {
+            'header_verdict': dkim_verdict,
+            'selectors': dkim_selectors,
+        },
+        'alignment': {
+            'spf': {'aligned': spf_aligned, 'from_domain': header_from_domain, 'mailfrom_domain': mailfrom_domain},
+            'dkim': {'aligned': dkim_aligned, 'from_domain': header_from_domain, 'dkim_domains': dkim_domains},
+        },
+        'dmarc_compliance': {
+            'compliant': compliant,
+            'checks': {
+                'spf_aligned': spf_aligned,
+                'spf_authenticated': spf_authenticated,
+                'dkim_aligned': dkim_aligned,
+                'dkim_authenticated': dkim_authenticated,
+            },
+        },
+    }
+
+
+def _build_reputation(route: List[Dict[str, Any]], blacklist_lookup=None) -> Dict[str, Any]:
+    checked = True
+    relay_ips = []
+    seen = set()
+    lookup = blacklist_lookup or _default_blacklist_lookup
+    for hop in route:
+        ip = hop.get('from', {}).get('public_ip') or hop.get('from', {}).get('ip')
+        if not ip or ip in seen:
+            hop['blacklist'] = {'ip': ip, 'listed': None, 'zones': [], 'status': 'not_checked'}
+            continue
+        seen.add(ip)
+        try:
+            result = lookup(ip)
+        except Exception:
+            result = {'ip': ip, 'listed': None, 'zones': [], 'status': 'lookup_error'}
+        hop['blacklist'] = result
+        relay_ips.append(result)
+    return {'checked': checked, 'relay_ips': relay_ips}
+
+
+def _validation_warnings(validation: Dict[str, Any]) -> List[str]:
+    warnings = []
+    if validation['dmarc']['record_found'] is False:
+        warnings.append('No DMARC record found for the Header From domain.')
+    if validation['spf']['record_found'] is False:
+        warnings.append('No SPF record found for the envelope/mailfrom domain.')
+    if validation['dkim']['selectors'] and not any(item['record_found'] for item in validation['dkim']['selectors']):
+        warnings.append('No DKIM selector DNS records found for DKIM signatures in the header.')
+    if validation['dmarc_compliance']['compliant'] is False:
+        warnings.append('Message does not appear DMARC compliant from available header and DNS evidence.')
+    return warnings
+
+
+def analyze_headers(raw_headers: str, country_lookup=None, dns_lookup=None, blacklist_lookup=None) -> Dict[str, Any]:
     if not raw_headers or not raw_headers.strip():
         raise ValueError("headers are required")
 
@@ -230,6 +483,7 @@ def analyze_headers(raw_headers: str, country_lookup=None) -> Dict[str, Any]:
             "delay_seconds": delay,
             "delay_human": human_duration(delay),
             "raw": hop["raw"],
+            "blacklist": {"ip": hop["from"].get("public_ip") or hop["from"].get("ip"), "listed": None, "zones": [], "status": "not_checked"},
         })
 
     if not route:
@@ -254,26 +508,34 @@ def analyze_headers(raw_headers: str, country_lookup=None) -> Dict[str, Any]:
         "date": get_header_value("Date", raw_headers),
     }
 
+    direction = {
+        "origin": origin,
+        "destination": destination,
+        "hop_count": len(route),
+        "received_path": [
+            {"hop": hop["hop"], "from": hop["from"].get("host"), "by": hop["by"].get("host")}
+            for hop in route
+        ],
+        "suspected_source_ip": suspected_source_ip,
+        "suspected_source_host": suspected_source_host,
+    }
+    security = _security(parsed)
+    validation = _build_validation(parsed, summary, direction, security, dns_lookup=dns_lookup)
+    warnings.extend(_validation_warnings(validation))
+    reputation = _build_reputation(route, blacklist_lookup=blacklist_lookup)
+
     return {
         "summary": summary,
         "route": route,
-        "direction": {
-            "origin": origin,
-            "destination": destination,
-            "hop_count": len(route),
-            "received_path": [
-                {"hop": hop["hop"], "from": hop["from"].get("host"), "by": hop["by"].get("host")}
-                for hop in route
-            ],
-            "suspected_source_ip": suspected_source_ip,
-            "suspected_source_host": suspected_source_host,
-        },
+        "direction": direction,
         "timing": {
             "total_delay_seconds": total_delay,
             "total_delay_human": human_duration(total_delay),
             "delayed": bool(total_delay),
         },
-        "security": _security(parsed),
+        "security": security,
+        "validation": validation,
+        "reputation": reputation,
         "headers": _headers_by_group(parsed),
         "warnings": warnings,
     }
