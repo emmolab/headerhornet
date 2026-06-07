@@ -1,11 +1,20 @@
-version: "3"
-
 services:
-  mha:
-    container_name: mha
-    build: .
-    image: mha:latest
+  headerhornet:
+    container_name: ${HEADERHORNET_CONTAINER_NAME:-headerhornet}
+    image: ${HEADERHORNET_IMAGE:-ghcr.io/emmolab/headerhornet:latest}
+    build:
+      context: .
     restart: unless-stopped
     ports:
-     - "8080:8080"
-    command: --debug
+      - "${HEADERHORNET_HOST:-127.0.0.1}:${HEADERHORNET_HOST_PORT:-8080}:${HEADERHORNET_CONTAINER_PORT:-8080}"
+    command:
+      - "-p"
+      - "${HEADERHORNET_CONTAINER_PORT:-8080}"
+    environment:
+      HEADERHORNET_DEBUG: ${HEADERHORNET_DEBUG:-0}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:${HEADERHORNET_CONTAINER_PORT:-8080}/api/v1/health >/dev/null"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

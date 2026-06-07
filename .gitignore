@@ -51,6 +51,8 @@ coverage.xml
 
 # Django stuff:
 *.log
+.env
+.env.local
 
 # Sphinx documentation
 docs/_build/
@@ -62,5 +64,6 @@ target/
 .ipynb_checkpoints
 
 virt/
+.venv/
 .vscode/
 venv/
