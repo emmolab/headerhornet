@@ -43,7 +43,26 @@ Example response:
 
 ### Analyze headers
 
-Submit raw headers as JSON:
+For human analyst copy/paste, submit raw headers directly as `text/plain`:
+
+```bash
+curl -s http://localhost:8080/api/v1/analyze \
+  -H 'Content-Type: text/plain' \
+  --data-binary @- <<'EOF'
+Received: from workstation.local (unknown [198.51.100.44])
+        by mail.example.net with ESMTP id def456;
+        Tue, 04 Jun 2024 10:00:30 -0000
+Authentication-Results: mail.example.net; spf=pass; dkim=pass; dmarc=pass
+From: Sender <sender@example.com>
+To: Victim <victim@example.com>
+Subject: Test message
+Date: Tue, 04 Jun 2024 10:00:00 -0000
+EOF
+```
+
+The API also accepts JSON, form data, and common field aliases. It normalizes line endings, strips surrounding Markdown code fences, and recovers from the common invalid-JSON paste where raw multi-line headers are placed after `"headers": "` without escaping each newline.
+
+Automation clients can submit JSON:
 
 ```bash
 curl -s http://localhost:8080/api/v1/analyze \
@@ -55,7 +74,7 @@ curl -s http://localhost:8080/api/v1/analyze \
 JSON
 ```
 
-Form submissions are also supported:
+File/form submissions are supported too:
 
 ```bash
 curl -s http://localhost:8080/api/v1/analyze \

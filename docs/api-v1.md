@@ -73,7 +73,51 @@ Response:
 
 Analyze raw RFC822 email headers and return structured findings.
 
+The endpoint is deliberately forgiving for analyst copy/paste workflows. It accepts:
+
+- JSON: `{ "headers": "..." }`
+- form data: `headers=<raw headers>`
+- `text/plain` or `message/rfc822` raw request bodies
+- common aliases: `headers`, `raw_headers`, `header_text`, or `message_headers`
+
+Before analysis, HeaderHornet normalizes line endings, strips surrounding Markdown code fences, and recovers from the common invalid-JSON paste where raw multi-line headers are placed after `"headers": "` without escaping each newline.
+
+#### Recommended copy/paste request
+
+This is the easiest format for a human analyst because you can paste headers exactly as copied from a mail client:
+
+```bash
+curl -s http://localhost:8080/api/v1/analyze \
+  -H 'X-API-Key: your-long-random-key' \
+  -H 'Content-Type: text/plain' \
+  --data-binary @- <<'EOF'
+Received: from mail.example.net (mail.example.net [203.0.113.10])
+        by mx.google.com with ESMTPS id abc123
+        for <victim@example.com>;
+        Tue, 04 Jun 2024 10:05:00 -0000
+Received: from workstation.local (unknown [198.51.100.44])
+        by mail.example.net with ESMTP id def456;
+        Tue, 04 Jun 2024 10:00:30 -0000
+Authentication-Results: mx.google.com; spf=pass smtp.mailfrom=sender.example; dkim=pass header.d=sender.example; dmarc=pass header.from=sender.example
+From: Sender <sender@sender.example>
+To: Victim <victim@example.com>
+Subject: Test message
+Message-ID: <abc123@sender.example>
+Date: Tue, 04 Jun 2024 10:00:00 -0000
+EOF
+```
+
+#### File upload-style request
+
+```bash
+curl -s http://localhost:8080/api/v1/analyze \
+  -H 'X-API-Key: your-long-random-key' \
+  --data-urlencode headers@sample-headers.txt
+```
+
 #### JSON request
+
+Use JSON when an integration can safely serialize newlines as `\n`:
 
 ```bash
 curl -s http://localhost:8080/api/v1/analyze \
@@ -84,14 +128,6 @@ curl -s http://localhost:8080/api/v1/analyze \
   "headers": "Received: from mail.example.net (mail.example.net [203.0.113.10])\n        by mx.google.com with ESMTPS id abc123\n        for <victim@example.com>;\n        Tue, 04 Jun 2024 10:05:00 -0000\nReceived: from workstation.local (unknown [198.51.100.44])\n        by mail.example.net with ESMTP id def456;\n        Tue, 04 Jun 2024 10:00:30 -0000\nAuthentication-Results: mx.google.com; spf=pass smtp.mailfrom=sender.example; dkim=pass header.d=sender.example; dmarc=pass header.from=sender.example\nFrom: Sender <sender@sender.example>\nTo: Victim <victim@example.com>\nSubject: Test message\nMessage-ID: <abc123@sender.example>\nDate: Tue, 04 Jun 2024 10:00:00 -0000\n"
 }
 JSON
-```
-
-#### Form request
-
-```bash
-curl -s http://localhost:8080/api/v1/analyze \
-  -H 'X-API-Key: example-api-key' \
-  --data-urlencode headers@sample-headers.txt
 ```
 
 ## Response shape

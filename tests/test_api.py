@@ -24,6 +24,52 @@ def test_analyze_api_accepts_form_headers():
     assert payload['analysis']['summary']['subject'] == 'Test message'
 
 
+def test_analyze_api_accepts_text_plain_raw_headers():
+    client = app.test_client()
+
+    response = client.post(
+        '/api/v1/analyze',
+        data=SAMPLE_HEADERS,
+        content_type='text/plain',
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload['ok'] is True
+    assert payload['analysis']['summary']['subject'] == 'Test message'
+
+
+def test_analyze_api_sanitizes_pasted_invalid_json_header_wrapper():
+    client = app.test_client()
+    pasted_body = '{\n  "headers": "\n' + SAMPLE_HEADERS + '\n"\n}'
+
+    response = client.post(
+        '/api/v1/analyze',
+        data=pasted_body,
+        content_type='text/plain',
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload['analysis']['direction']['hop_count'] == 2
+    assert payload['analysis']['summary']['subject'] == 'Test message'
+
+
+def test_analyze_api_sanitizes_markdown_fenced_headers():
+    client = app.test_client()
+    pasted_body = '```\n' + SAMPLE_HEADERS + '\n```'
+
+    response = client.post(
+        '/api/v1/analyze',
+        data=pasted_body,
+        content_type='text/plain',
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload['analysis']['summary']['from'] == 'Sender <sender@sender.example>'
+
+
 def test_analyze_api_rejects_missing_headers():
     client = app.test_client()
 
@@ -56,6 +102,22 @@ def test_analyze_api_rejects_missing_api_key_when_auth_configured(monkeypatch):
     assert payload['ok'] is False
     assert payload['error']['code'] == 'unauthorized'
     assert 'API key' in payload['error']['message']
+
+
+def test_text_plain_analyze_api_rejects_missing_api_key_when_auth_configured(monkeypatch):
+    monkeypatch.setenv('HEADERHORNET_API_KEY', 'secret-test-key')
+    client = app.test_client()
+
+    response = client.post(
+        '/api/v1/analyze',
+        data=SAMPLE_HEADERS,
+        content_type='text/plain',
+    )
+
+    assert response.status_code == 401
+    payload = response.get_json()
+    assert payload['ok'] is False
+    assert payload['error']['code'] == 'unauthorized'
 
 
 def test_analyze_api_accepts_x_api_key_header(monkeypatch):

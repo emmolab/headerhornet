@@ -6,6 +6,7 @@ from flask import request
 from email.parser import HeaderParser
 import argparse
 import hmac
+import json
 import os
 import re
 
@@ -88,12 +89,88 @@ def _build_delay_chart(analysis):
     return line_chart.render(is_unicode=True)
 
 
+def _looks_like_headers(value):
+    if not isinstance(value, str):
+        return False
+    return bool(re.search(r'(?im)^(received|from|to|subject|date|message-id|authentication-results|dkim-signature):', value))
+
+
+def _strip_markdown_fence(value):
+    text = value.strip()
+    match = re.match(r'^```(?:[a-zA-Z0-9_-]+)?\s*\n(?P<body>.*)\n```\s*$', text, re.S)
+    return match.group('body') if match else value
+
+
+def _extract_headers_wrapper(value):
+    text = value.strip()
+
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        payload = None
+    if isinstance(payload, dict):
+        for key in ('headers', 'raw_headers', 'header_text', 'message_headers'):
+            if isinstance(payload.get(key), str):
+                return payload[key]
+
+    # Recover from the common copy/paste mistake where raw multi-line headers are
+    # placed after `"headers": "` without JSON escaping each newline.
+    match = re.match(r'^\s*\{?\s*["\']?(?:headers|raw_headers|header_text|message_headers)["\']?\s*:\s*["\']?\s*(?P<body>.*)\s*$', text, re.S | re.I)
+    if not match:
+        return value
+
+    body = match.group('body').strip()
+    body = re.sub(r'\s*["\']?\s*}\s*$', '', body, count=1)
+    body = body.strip().strip('"\'')
+    return body if _looks_like_headers(body) else value
+
+
+def _decode_literal_newline_headers(value):
+    text = value.strip()
+    if '\\n' not in text:
+        return value
+    if text.count('\\n') < text.count('\n'):
+        return value
+    try:
+        decoded = json.loads('"' + text.replace('"', '\\"') + '"')
+    except json.JSONDecodeError:
+        return value
+    return decoded if _looks_like_headers(decoded) else value
+
+
+def _sanitize_header_input(value):
+    if not isinstance(value, str):
+        return ''
+
+    text = value.replace('\r\n', '\n').replace('\r', '\n').strip()
+    text = _strip_markdown_fence(text)
+    text = _extract_headers_wrapper(text)
+    text = _strip_markdown_fence(text)
+    text = _decode_literal_newline_headers(text)
+    return text.strip()
+
+
 def _headers_from_request():
     payload = request.get_json(silent=True) or {}
-    headers = payload.get('headers') if isinstance(payload, dict) else None
+    headers = None
+    if isinstance(payload, dict):
+        for key in ('headers', 'raw_headers', 'header_text', 'message_headers'):
+            if payload.get(key):
+                headers = payload.get(key)
+                break
+
     if not headers:
-        headers = request.form.get('headers')
-    return headers.strip() if isinstance(headers, str) else ''
+        for key in ('headers', 'raw_headers', 'header_text', 'message_headers'):
+            if request.form.get(key):
+                headers = request.form.get(key)
+                break
+
+    if not headers:
+        raw_body = request.get_data(as_text=True)
+        if request.mimetype in {'text/plain', 'message/rfc822', 'application/octet-stream'} or _looks_like_headers(raw_body):
+            headers = raw_body
+
+    return _sanitize_header_input(headers)
 
 
 def _configured_api_key():
