@@ -15,11 +15,11 @@ def test_analyze_api_returns_only_requested_fields_from_query_string():
     assert payload == {
         'ok': True,
         'results': {
-            'spf': 'pass',
+            'spf_verdict': 'pass',
             'source_ip': '198.51.100.44',
-            'hops': 2,
-            'dmarc': 'pass',
-            'dkim': 'pass',
+            'hop_count': 2,
+            'dmarc_verdict': 'pass',
+            'dkim_verdict': 'pass',
             'subject': 'Test message',
             'direction': {
                 'origin': {
@@ -49,11 +49,11 @@ def test_analyze_api_returns_requested_fields_from_json_body_aliases():
     assert response.status_code == 200
     payload = response.get_json()
     assert payload['ok'] is True
-    assert payload['results']['spf'] == 'pass'
+    assert payload['results']['spf_verdict'] == 'pass'
     assert payload['results']['source_ip'] == '198.51.100.44'
-    assert payload['results']['hops'] == 2
-    assert payload['results']['dmarc'] == 'pass'
-    assert payload['results']['dkim'] == 'pass'
+    assert payload['results']['hop_count'] == 2
+    assert payload['results']['dmarc_verdict'] == 'pass'
+    assert payload['results']['dkim_verdict'] == 'pass'
     assert payload['results']['subject'] == 'Test message'
     assert payload['results']['direction']['origin']['host'] == 'workstation.local'
     assert 'analysis' not in payload

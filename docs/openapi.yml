@@ -37,8 +37,8 @@ paths:
           required: false
           schema:
             type: string
-            example: spf,source_ip,hops,dmarc,dkim,subject,direction
-          description: Optional comma-separated field list. When present, the response returns a compact `results` object instead of the full `analysis` object. Supported fields are `spf`, `source_ip`, `hops`, `dmarc`, `dkim`, `subject`, and `direction`.
+            example: spf,source_host,source_ip,hops,dmarc,dkim,arc,dkim_present,blacklist_status,blacklist_listed,reputation_checked,subject,direction
+          description: Optional comma-separated field list. When present, the response returns a compact `results` object instead of the full `analysis` object. Supported fields include `spf`/`spf_verdict`, `dkim`/`dkim_verdict`, `dmarc`/`dmarc_verdict`, `arc`/`arc_verdict`, `dkim_present`, `source_host`, `source_ip`, `hops`/`hop_count`, `blacklist_status`, `blacklist_listed`, `reputation_checked`, `subject`, and `direction`.
       requestBody:
         required: true
         content:
@@ -124,11 +124,11 @@ components:
         fields:
           oneOf:
             - type: string
-              example: spf,source_ip,hops,dmarc,dkim,subject,direction
+              example: spf,source_host,source_ip,hops,dmarc,dkim,arc,dkim_present,blacklist_status,blacklist_listed,reputation_checked,subject,direction
             - type: array
               items:
                 type: string
-          description: Optional compact-response field list. Supported values and aliases include `spf`, `source_ip`/`Source IP`, `hops`/`hop_count`, `dmarc`, `dkim`, `subject`, and `direction`/`Message Direction`.
+          description: Optional compact-response field list. Supported values and aliases include `spf`/`spf_verdict`, `dkim`/`dkim_verdict`, `dmarc`/`dmarc_verdict`, `arc`/`arc_verdict`, `dkim_present`, `source_host`, `source_ip`/`Source IP`, `hops`/`hop_count`, `blacklist_status`, `blacklist_listed`, `reputation_checked`, `subject`, and `direction`/`Message Direction`.
         field:
           type: string
           description: Singular alias for `fields`.
@@ -153,26 +153,47 @@ components:
     SelectiveResults:
       type: object
       properties:
-        spf:
+        spf_verdict:
           type: string
           nullable: true
           enum: [pass, fail, neutral, softfail, temperror, permerror, none, unknown, null]
+        dkim_verdict:
+          type: string
+          nullable: true
+          enum: [pass, fail, none, neutral, temperror, permerror, unknown, null]
+        dmarc_verdict:
+          type: string
+          nullable: true
+          enum: [pass, fail, none, temperror, permerror, unknown, null]
+        arc_verdict:
+          type: string
+          nullable: true
+          enum: [pass, fail, none, temperror, permerror, unknown, null]
+        dkim_present:
+          type: boolean
+          nullable: true
+        source_host:
+          type: string
+          nullable: true
+          example: workstation.local
         source_ip:
           type: string
           nullable: true
           example: 198.51.100.44
-        hops:
+        hop_count:
           type: integer
           nullable: true
           example: 2
-        dmarc:
+        blacklist_status:
           type: string
           nullable: true
-          enum: [pass, fail, none, temperror, permerror, unknown, null]
-        dkim:
-          type: string
+          example: not_listed
+        blacklist_listed:
+          type: boolean
           nullable: true
-          enum: [pass, fail, none, neutral, temperror, permerror, unknown, null]
+        reputation_checked:
+          type: boolean
+          nullable: true
         subject:
           type: string
           nullable: true

@@ -174,16 +174,36 @@ def _headers_from_request():
 
 
 _FIELD_ALIASES = {
-    'spf': 'spf',
+    'spf': 'spf_verdict',
+    'spf_verdict': 'spf_verdict',
+    'spfverdict': 'spf_verdict',
     'source_ip': 'source_ip',
     'sourceip': 'source_ip',
     'ip': 'source_ip',
-    'hops': 'hops',
-    'hop': 'hops',
-    'hop_count': 'hops',
-    'hopcount': 'hops',
-    'dmarc': 'dmarc',
-    'dkim': 'dkim',
+    'source_host': 'source_host',
+    'sourcehost': 'source_host',
+    'host': 'source_host',
+    'hops': 'hop_count',
+    'hop': 'hop_count',
+    'hop_count': 'hop_count',
+    'hopcount': 'hop_count',
+    'dmarc': 'dmarc_verdict',
+    'dmarc_verdict': 'dmarc_verdict',
+    'dmarcverdict': 'dmarc_verdict',
+    'dkim': 'dkim_verdict',
+    'dkim_verdict': 'dkim_verdict',
+    'dkimverdict': 'dkim_verdict',
+    'arc': 'arc_verdict',
+    'arc_verdict': 'arc_verdict',
+    'arcverdict': 'arc_verdict',
+    'dkim_present': 'dkim_present',
+    'dkimpresent': 'dkim_present',
+    'blacklist_status': 'blacklist_status',
+    'blackliststatus': 'blacklist_status',
+    'blacklist_listed': 'blacklist_listed',
+    'blacklistlisted': 'blacklist_listed',
+    'reputation_checked': 'reputation_checked',
+    'reputationchecked': 'reputation_checked',
     'subject': 'subject',
     'direction': 'direction',
     'message_direction': 'direction',
@@ -246,19 +266,41 @@ def _selected_analysis_fields(analysis, fields):
     security = analysis.get('security') or {}
     direction = analysis.get('direction') or {}
     summary = analysis.get('summary') or {}
+    reputation = analysis.get('reputation') or {}
+    route = analysis.get('route') or []
+    first_blacklist = None
+    for hop in route:
+        blacklist = hop.get('blacklist') or {}
+        if blacklist.get('ip') or blacklist.get('status') != 'not_checked':
+            first_blacklist = blacklist
+            break
+    if first_blacklist is None and route:
+        first_blacklist = (route[0].get('blacklist') or {})
     selected = {}
 
     for field in fields:
-        if field == 'spf':
+        if field == 'spf_verdict':
             selected[field] = (security.get('spf') or {}).get('verdict')
+        elif field == 'dkim_verdict':
+            selected[field] = (security.get('dkim') or {}).get('verdict')
+        elif field == 'dmarc_verdict':
+            selected[field] = (security.get('dmarc') or {}).get('verdict')
+        elif field == 'arc_verdict':
+            selected[field] = (security.get('arc') or {}).get('verdict')
+        elif field == 'dkim_present':
+            selected[field] = (security.get('dkim') or {}).get('present')
         elif field == 'source_ip':
             selected[field] = direction.get('suspected_source_ip')
-        elif field == 'hops':
+        elif field == 'source_host':
+            selected[field] = direction.get('suspected_source_host')
+        elif field == 'hop_count':
             selected[field] = direction.get('hop_count')
-        elif field == 'dmarc':
-            selected[field] = (security.get('dmarc') or {}).get('verdict')
-        elif field == 'dkim':
-            selected[field] = (security.get('dkim') or {}).get('verdict')
+        elif field == 'blacklist_status':
+            selected[field] = (first_blacklist or {}).get('status')
+        elif field == 'blacklist_listed':
+            selected[field] = (first_blacklist or {}).get('listed')
+        elif field == 'reputation_checked':
+            selected[field] = reputation.get('checked')
         elif field == 'subject':
             selected[field] = summary.get('subject')
         elif field == 'direction':
@@ -352,7 +394,7 @@ def api_analyze():
             'ok': False,
             'error': {
                 'code': 'invalid_fields',
-                'message': 'Unknown field(s): %s. Supported fields are: spf, source_ip, hops, dmarc, dkim, subject, direction.' % ', '.join(unknown_fields),
+                'message': 'Unknown field(s): %s. Supported fields are: spf, spf_verdict, dkim, dkim_verdict, dmarc, dmarc_verdict, arc, arc_verdict, dkim_present, source_host, source_ip, hops, hop_count, blacklist_status, blacklist_listed, reputation_checked, subject, direction.' % ', '.join(unknown_fields),
             },
         }), 400
 

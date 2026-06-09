@@ -134,20 +134,26 @@ JSON
 
 By default, the API returns the full `analysis` object. To keep SOAR, ticketing, or custom integrations lightweight, request a compact result set with `fields` as either a comma-separated query string or a JSON/form field.
 
-Supported fields and aliases:
+Supported fields and aliases. The compact response uses explicit integration-friendly result keys:
 
-- `spf`: SPF verdict, for example `pass` or `fail`.
+- `spf` / `spf_verdict`: returns `spf_verdict`, for example `pass` or `fail`.
+- `dkim` / `dkim_verdict`: returns `dkim_verdict`.
+- `dmarc` / `dmarc_verdict`: returns `dmarc_verdict`.
+- `arc` / `arc_verdict`: returns `arc_verdict` when ARC evidence such as `arc=` or `cv=` is present.
+- `dkim_present`: returns whether a DKIM-Signature header is present.
+- `source_host`: suspected source host. Aliases: `Source Host`, `host`.
 - `source_ip`: suspected source IP. Aliases: `Source IP`, `ip`.
-- `hops`: parseable Received-hop count. Aliases: `hop`, `hop_count`, `Hop Count`.
-- `dmarc`: DMARC verdict.
-- `dkim`: DKIM verdict.
+- `hops` / `hop_count`: returns `hop_count`, the parseable Received-hop count. Aliases: `hop`, `Hop Count`.
+- `blacklist_status`: first relay/source blacklist status.
+- `blacklist_listed`: first relay/source blacklist listed flag.
+- `reputation_checked`: whether reputation checks ran.
 - `subject`: message subject.
 - `direction`: compact origin/destination object. Alias: `Message Direction`.
 
 Query-string example:
 
 ```bash
-curl -s 'http://localhost:8080/api/v1/analyze?fields=spf,source_ip,hops,dmarc,dkim,subject,direction' \
+curl -s 'http://localhost:8080/api/v1/analyze?fields=spf,source_host,source_ip,hops,dmarc,dkim,arc,dkim_present,blacklist_status,blacklist_listed,reputation_checked,subject,direction' \
   -H 'X-API-Key: your-long-random-key' \
   -H 'Content-Type: text/plain' \
   --data-binary @sample-headers.txt
@@ -162,7 +168,7 @@ curl -s http://localhost:8080/api/v1/analyze \
   -d @- <<'JSON'
 {
   "headers": "Received: from workstation.local (unknown [198.51.100.44])\n        by mail.example.net with ESMTP id def456;\n        Tue, 04 Jun 2024 10:00:30 -0000\nAuthentication-Results: mail.example.net; spf=pass; dkim=pass; dmarc=pass\nSubject: Test message\n",
-  "fields": ["SPF", "Source IP", "Hops", "DMARC", "DKIM", "Subject", "Message Direction"]
+  "fields": ["SPF", "Source Host", "Source IP", "Hops", "DMARC", "DKIM", "ARC", "DKIM Present", "Blacklist Status", "Blacklist Listed", "Reputation Checked", "Subject", "Message Direction"]
 }
 JSON
 ```
@@ -173,11 +179,17 @@ Compact response example:
 {
   "ok": true,
   "results": {
-    "spf": "pass",
+    "spf_verdict": "pass",
+    "source_host": "workstation.local",
     "source_ip": "198.51.100.44",
-    "hops": 1,
-    "dmarc": "pass",
-    "dkim": "pass",
+    "hop_count": 1,
+    "dmarc_verdict": "pass",
+    "dkim_verdict": "pass",
+    "arc_verdict": null,
+    "dkim_present": false,
+    "blacklist_status": "not_listed",
+    "blacklist_listed": false,
+    "reputation_checked": true,
     "subject": "Test message",
     "direction": {
       "origin": {"host": "workstation.local", "ip": "198.51.100.44"},

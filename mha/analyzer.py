@@ -22,7 +22,9 @@ IPV4_RE = re.compile(
 SECURITY_HEADER_NAMES = [
     "Received-SPF",
     "Authentication-Results",
+    "Authentication-Results-Original",
     "DKIM-Signature",
+    "ARC-Seal",
     "ARC-Authentication-Results",
 ]
 SUMMARY_HEADERS = ["From", "To", "Cc", "Subject", "Message-ID", "Date"]
@@ -65,7 +67,7 @@ def get_header_value(name: str, raw_headers: str) -> Optional[str]:
     value = parsed.get(name)
     if value:
         return value.strip()
-    match = re.findall(rf"{re.escape(name)}:\s*(.*?)(?=\n\S[^\n]*?:\s|\Z)", raw_headers, re.I | re.DOTALL)
+    match = re.findall(rf"{re.escape(name)}:\s*(.*?)(?=\n[A-Za-z][A-Za-z0-9_.-]*:\s*|\Z)", raw_headers, re.I | re.DOTALL)
     if match:
         return " ".join(match[0].split())
     return None
@@ -169,18 +171,22 @@ def _verdict_from_text(text: str, key: str) -> Optional[str]:
 
 def _security(parsed) -> Dict[str, Any]:
     auth_results = parsed.get_all("Authentication-Results") or []
+    auth_results_original = parsed.get_all("Authentication-Results-Original") or []
     arc_results = parsed.get_all("ARC-Authentication-Results") or []
+    arc_seals = parsed.get_all("ARC-Seal") or []
     received_spf = parsed.get_all("Received-SPF") or []
     dkim = parsed.get_all("DKIM-Signature") or []
-    auth_text = "\n".join(auth_results)
+    auth_text = "\n".join(auth_results + auth_results_original)
     spf_text = "\n".join(received_spf) or auth_text
+    arc_text = "\n".join(arc_results + arc_seals)
 
     return {
         "spf": {"verdict": _verdict_from_text(spf_text, "spf"), "headers": received_spf},
         "dkim": {"verdict": _verdict_from_text(auth_text, "dkim"), "present": bool(dkim), "headers": dkim},
         "dmarc": {"verdict": _verdict_from_text(auth_text, "dmarc")},
-        "arc": {"verdict": _verdict_from_text("\n".join(arc_results), "arc"), "headers": arc_results},
+        "arc": {"verdict": _verdict_from_text(arc_text, "arc") or _verdict_from_text(arc_text, "cv"), "headers": arc_results, "seals": arc_seals},
         "authentication_results": auth_results,
+        "authentication_results_original": auth_results_original,
     }
 
 
