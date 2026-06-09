@@ -125,6 +125,18 @@ def _extract_headers_wrapper(value):
     return body if _looks_like_headers(body) else value
 
 
+_SQUASHED_HEADER_BOUNDARY_RE = re.compile(
+    r'(?<!\n)(?=(?:'
+    r'Received|Received-SPF|(?<!ARC-)Authentication-Results-Original|(?<!ARC-)Authentication-Results|'
+    r'ARC-Authentication-Results|ARC-Seal|DKIM-Signature|'
+    r'From|To|Cc|CC|Subject|Thread-Topic|Thread-Index|Date|Message-ID|'
+    r'Accept-Language|Content-Language|Content-Type|MIME-Version|Return-Path|'
+    r'X-[A-Za-z0-9-]+'
+    r')\s*:)',
+    re.I,
+)
+
+
 def _decode_literal_newline_headers(value):
     text = value.strip()
     if '\\n' not in text:
@@ -138,6 +150,16 @@ def _decode_literal_newline_headers(value):
     return decoded if _looks_like_headers(decoded) else value
 
 
+def _rehydrate_squashed_headers(value):
+    if not isinstance(value, str) or not _looks_like_headers(value):
+        return value
+    # Some SOAR/ticketing platforms flatten copied headers into one long line. Restore
+    # header boundaries before parsing so `...+0000Received:` and `...trueX-Foo:`
+    # become separate RFC822-style header lines again. This is deliberately limited
+    # to known email header names to avoid inserting newlines into arbitrary text.
+    return _SQUASHED_HEADER_BOUNDARY_RE.sub('\n', value).lstrip('\n')
+
+
 def _sanitize_header_input(value):
     if not isinstance(value, str):
         return ''
@@ -147,6 +169,7 @@ def _sanitize_header_input(value):
     text = _extract_headers_wrapper(text)
     text = _strip_markdown_fence(text)
     text = _decode_literal_newline_headers(text)
+    text = _rehydrate_squashed_headers(text)
     return text.strip()
 
 

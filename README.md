@@ -60,7 +60,7 @@ Date: Tue, 04 Jun 2024 10:00:00 -0000
 EOF
 ```
 
-The API also accepts JSON, form data, and common field aliases. It normalizes line endings, strips surrounding Markdown code fences, and recovers from the common invalid-JSON paste where raw multi-line headers are placed after `"headers": "` without escaping each newline.
+The API also accepts JSON, form data, and common field aliases. It normalizes line endings, strips surrounding Markdown code fences, recovers from the common invalid-JSON paste where raw multi-line headers are placed after `"headers": "` without escaping each newline, and rehydrates SOAR/ticketing-system payloads that squash headers into one long line such as `...+0000Received:` or `...trueX-Example:`.
 
 If an integration only needs a small subset, add `fields=spf,source_host,source_ip,hops,dmarc,dkim,arc,dkim_present,blacklist_status,blacklist_listed,reputation_checked,subject,direction` to the query string or send the same list in the JSON/form `fields` value. When `fields` is present, the response returns a compact `results` object instead of the full `analysis` object.
 

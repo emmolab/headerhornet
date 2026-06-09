@@ -25,6 +25,31 @@ Received: from workstation.local (unknown [198.51.100.44]) by mx.example.com;
 """
 
 
+SQUASHED_HEADERS_FROM_SOAR_BODY = (
+    "Received: from SY8PR01MB9220.ausprd01.prod.outlook.com (::1) by "
+    "SY7PR01MB9171.ausprd01.prod.outlook.com with HTTPS; Thu, 4 Jun 2026 00:41:35 +0000"
+    "Received: from SY5PR01CA0112.ausprd01.prod.outlook.com (2603:10c6:10:246::11) by "
+    "SY8PR01MB9220.ausprd01.prod.outlook.com (2603:10c6:10:22f::13) with Microsoft SMTP Server; Thu, 4 Jun 2026 00:41:25 +0000"
+    "Authentication-Results: spf=pass (sender IP is 13.70.157.244) smtp.mailfrom=sender.example; "
+    "dkim=none (message not signed) header.d=none;dmarc=pass action=none header.from=sender.example;"
+    "Received-SPF: Pass (protection.outlook.com: domain of sender.example designates 13.70.157.244 as permitted sender) "
+    "receiver=protection.outlook.com; client-ip=13.70.157.244; helo=au2.smtp.exclaimer.net; pr=C"
+    "Received: from au2.smtp.exclaimer.net (13.70.157.244) by SY1PEPF000066C2.mail.protection.outlook.com "
+    "(10.167.241.52) with Microsoft SMTP Server; Thu, 4 Jun 2026 00:41:23 +0000"
+    "X-ExclaimerHostedSignatures-MessageProcessed: true"
+    "X-ExclaimerProxyLatency: 31187596"
+    "From: Sender <sender@sender.example>"
+    "To: Recipient <recipient@example.com>"
+    "Subject: Reminder of workplace communication"
+    "Thread-Topic: Reminder of workplace communication"
+    "Date: Thu, 4 Jun 2026 00:41:19 +0000"
+    "Message-ID:<SYBPR01MB50490ECC7ECB77D1D6D78E3D97102@example.com>"
+    "Authentication-Results-Original: dkim=none (message not signed) header.d=none;"
+    "dmarc=none action=none header.from=sender.example;"
+    "X-Forefront-Antispam-Report: CIP:13.70.157.244;CTRY:AU;LANG:en;SCL:1;DIR:INT;"
+)
+
+
 def test_compact_response_uses_explicit_flat_result_keys_for_integrations():
     client = app.test_client()
 
@@ -62,3 +87,22 @@ def test_subject_does_not_capture_following_headers_without_space_after_colon():
     assert response.status_code == 200
     payload = response.get_json()
     assert payload['results']['subject'] == 'Only this text'
+
+
+def test_squashed_header_blob_is_rehydrated_before_analysis():
+    client = app.test_client()
+
+    response = client.post(
+        '/api/v1/analyze?fields=spf,dkim,dmarc,source_host,source_ip,hops,subject',
+        json={'headers': SQUASHED_HEADERS_FROM_SOAR_BODY},
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload['results']['spf_verdict'] == 'pass'
+    assert payload['results']['dkim_verdict'] == 'none'
+    assert payload['results']['dmarc_verdict'] == 'pass'
+    assert payload['results']['source_host'] == 'au2.smtp.exclaimer.net'
+    assert payload['results']['source_ip'] == '13.70.157.244'
+    assert payload['results']['hop_count'] == 3
+    assert payload['results']['subject'] == 'Reminder of workplace communication'
