@@ -62,6 +62,36 @@ EOF
 
 The API also accepts JSON, form data, and common field aliases. It normalizes line endings, strips surrounding Markdown code fences, and recovers from the common invalid-JSON paste where raw multi-line headers are placed after `"headers": "` without escaping each newline.
 
+If an integration only needs a small subset, add `fields=spf,source_ip,hops,dmarc,dkim,subject,direction` to the query string or send the same list in the JSON/form `fields` value. When `fields` is present, the response returns a compact `results` object instead of the full `analysis` object.
+
+Example compact-result request:
+
+```bash
+curl -s 'http://localhost:8080/api/v1/analyze?fields=spf,source_ip,hops,dmarc,dkim,subject,direction' \
+  -H 'Content-Type: text/plain' \
+  --data-binary @sample-headers.txt
+```
+
+Example compact-result response:
+
+```json
+{
+  "ok": true,
+  "results": {
+    "spf": "pass",
+    "source_ip": "198.51.100.44",
+    "hops": 2,
+    "dmarc": "pass",
+    "dkim": "pass",
+    "subject": "Test message",
+    "direction": {
+      "origin": {"host": "workstation.local", "ip": "198.51.100.44"},
+      "destination": {"host": "mx.google.com", "ip": null}
+    }
+  }
+}
+```
+
 Automation clients can submit JSON:
 
 ```bash

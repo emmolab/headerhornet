@@ -173,6 +173,102 @@ def _headers_from_request():
     return _sanitize_header_input(headers)
 
 
+_FIELD_ALIASES = {
+    'spf': 'spf',
+    'source_ip': 'source_ip',
+    'sourceip': 'source_ip',
+    'ip': 'source_ip',
+    'hops': 'hops',
+    'hop': 'hops',
+    'hop_count': 'hops',
+    'hopcount': 'hops',
+    'dmarc': 'dmarc',
+    'dkim': 'dkim',
+    'subject': 'subject',
+    'direction': 'direction',
+    'message_direction': 'direction',
+    'messagedirection': 'direction',
+}
+
+
+def _field_key(value):
+    key = re.sub(r'[^a-z0-9]+', '_', str(value).strip().lower()).strip('_')
+    return _FIELD_ALIASES.get(key)
+
+
+def _split_requested_fields(value):
+    if not value:
+        return []
+    if isinstance(value, str):
+        return [part.strip() for part in value.split(',') if part.strip()]
+    if isinstance(value, (list, tuple)):
+        fields = []
+        for item in value:
+            fields.extend(_split_requested_fields(item))
+        return fields
+    return [str(value).strip()]
+
+
+def _requested_fields_from_request():
+    requested = []
+    for value in request.args.getlist('fields') + request.args.getlist('field'):
+        requested.extend(_split_requested_fields(value))
+
+    payload = request.get_json(silent=True) or {}
+    if isinstance(payload, dict):
+        requested.extend(_split_requested_fields(payload.get('fields')))
+        requested.extend(_split_requested_fields(payload.get('field')))
+
+    requested.extend(_split_requested_fields(request.form.get('fields')))
+    requested.extend(_split_requested_fields(request.form.get('field')))
+
+    canonical = []
+    unknown = []
+    for field in requested:
+        key = _field_key(field)
+        if not key:
+            unknown.append(field)
+            continue
+        if key not in canonical:
+            canonical.append(key)
+    return canonical, unknown
+
+
+def _endpoint_summary(endpoint):
+    endpoint = endpoint or {}
+    return {
+        'host': endpoint.get('host'),
+        'ip': endpoint.get('public_ip') or endpoint.get('ip'),
+    }
+
+
+def _selected_analysis_fields(analysis, fields):
+    security = analysis.get('security') or {}
+    direction = analysis.get('direction') or {}
+    summary = analysis.get('summary') or {}
+    selected = {}
+
+    for field in fields:
+        if field == 'spf':
+            selected[field] = (security.get('spf') or {}).get('verdict')
+        elif field == 'source_ip':
+            selected[field] = direction.get('suspected_source_ip')
+        elif field == 'hops':
+            selected[field] = direction.get('hop_count')
+        elif field == 'dmarc':
+            selected[field] = (security.get('dmarc') or {}).get('verdict')
+        elif field == 'dkim':
+            selected[field] = (security.get('dkim') or {}).get('verdict')
+        elif field == 'subject':
+            selected[field] = summary.get('subject')
+        elif field == 'direction':
+            selected[field] = {
+                'origin': _endpoint_summary(direction.get('origin')),
+                'destination': _endpoint_summary(direction.get('destination')),
+            }
+    return selected
+
+
 def _configured_api_key():
     return os.environ.get('HEADERHORNET_API_KEY', '').strip()
 
@@ -250,10 +346,23 @@ def api_analyze():
             },
         }), 400
 
+    requested_fields, unknown_fields = _requested_fields_from_request()
+    if unknown_fields:
+        return jsonify({
+            'ok': False,
+            'error': {
+                'code': 'invalid_fields',
+                'message': 'Unknown field(s): %s. Supported fields are: spf, source_ip, hops, dmarc, dkim, subject, direction.' % ', '.join(unknown_fields),
+            },
+        }), 400
+
     try:
         analysis = analyze_headers(headers, country_lookup=get_country_for_ip_or_line)
     except ValueError as exc:
         return jsonify({'ok': False, 'error': {'code': 'invalid_headers', 'message': str(exc)}}), 400
+
+    if requested_fields:
+        return jsonify({'ok': True, 'results': _selected_analysis_fields(analysis, requested_fields)})
 
     return jsonify({'ok': True, 'analysis': analysis})
 

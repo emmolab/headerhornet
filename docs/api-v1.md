@@ -130,6 +130,63 @@ curl -s http://localhost:8080/api/v1/analyze \
 JSON
 ```
 
+#### Select only the fields an integration needs
+
+By default, the API returns the full `analysis` object. To keep SOAR, ticketing, or custom integrations lightweight, request a compact result set with `fields` as either a comma-separated query string or a JSON/form field.
+
+Supported fields and aliases:
+
+- `spf`: SPF verdict, for example `pass` or `fail`.
+- `source_ip`: suspected source IP. Aliases: `Source IP`, `ip`.
+- `hops`: parseable Received-hop count. Aliases: `hop`, `hop_count`, `Hop Count`.
+- `dmarc`: DMARC verdict.
+- `dkim`: DKIM verdict.
+- `subject`: message subject.
+- `direction`: compact origin/destination object. Alias: `Message Direction`.
+
+Query-string example:
+
+```bash
+curl -s 'http://localhost:8080/api/v1/analyze?fields=spf,source_ip,hops,dmarc,dkim,subject,direction' \
+  -H 'X-API-Key: your-long-random-key' \
+  -H 'Content-Type: text/plain' \
+  --data-binary @sample-headers.txt
+```
+
+JSON example:
+
+```bash
+curl -s http://localhost:8080/api/v1/analyze \
+  -H 'Content-Type: application/json' \
+  -H 'X-API-Key: your-long-random-key' \
+  -d @- <<'JSON'
+{
+  "headers": "Received: from workstation.local (unknown [198.51.100.44])\n        by mail.example.net with ESMTP id def456;\n        Tue, 04 Jun 2024 10:00:30 -0000\nAuthentication-Results: mail.example.net; spf=pass; dkim=pass; dmarc=pass\nSubject: Test message\n",
+  "fields": ["SPF", "Source IP", "Hops", "DMARC", "DKIM", "Subject", "Message Direction"]
+}
+JSON
+```
+
+Compact response example:
+
+```json
+{
+  "ok": true,
+  "results": {
+    "spf": "pass",
+    "source_ip": "198.51.100.44",
+    "hops": 1,
+    "dmarc": "pass",
+    "dkim": "pass",
+    "subject": "Test message",
+    "direction": {
+      "origin": {"host": "workstation.local", "ip": "198.51.100.44"},
+      "destination": {"host": "mail.example.net", "ip": null}
+    }
+  }
+}
+```
+
 ## Response shape
 
 Successful responses use this envelope:

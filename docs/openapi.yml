@@ -31,6 +31,14 @@ paths:
         - ApiKeyAuth: []
         - BearerAuth: []
         - {}
+      parameters:
+        - in: query
+          name: fields
+          required: false
+          schema:
+            type: string
+            example: spf,source_ip,hops,dmarc,dkim,subject,direction
+          description: Optional comma-separated field list. When present, the response returns a compact `results` object instead of the full `analysis` object. Supported fields are `spf`, `source_ip`, `hops`, `dmarc`, `dkim`, `subject`, and `direction`.
       requestBody:
         required: true
         content:
@@ -54,7 +62,9 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AnalyzeResponse'
+                oneOf:
+                  - $ref: '#/components/schemas/AnalyzeResponse'
+                  - $ref: '#/components/schemas/SelectiveAnalyzeResponse'
         '400':
           description: Missing or invalid headers
           content:
@@ -111,6 +121,17 @@ components:
         message_headers:
           type: string
           description: Alias for `headers`.
+        fields:
+          oneOf:
+            - type: string
+              example: spf,source_ip,hops,dmarc,dkim,subject,direction
+            - type: array
+              items:
+                type: string
+          description: Optional compact-response field list. Supported values and aliases include `spf`, `source_ip`/`Source IP`, `hops`/`hop_count`, `dmarc`, `dkim`, `subject`, and `direction`/`Message Direction`.
+        field:
+          type: string
+          description: Singular alias for `fields`.
     AnalyzeResponse:
       type: object
       required: [ok, analysis]
@@ -120,6 +141,58 @@ components:
           example: true
         analysis:
           $ref: '#/components/schemas/Analysis'
+    SelectiveAnalyzeResponse:
+      type: object
+      required: [ok, results]
+      properties:
+        ok:
+          type: boolean
+          example: true
+        results:
+          $ref: '#/components/schemas/SelectiveResults'
+    SelectiveResults:
+      type: object
+      properties:
+        spf:
+          type: string
+          nullable: true
+          enum: [pass, fail, neutral, softfail, temperror, permerror, none, unknown, null]
+        source_ip:
+          type: string
+          nullable: true
+          example: 198.51.100.44
+        hops:
+          type: integer
+          nullable: true
+          example: 2
+        dmarc:
+          type: string
+          nullable: true
+          enum: [pass, fail, none, temperror, permerror, unknown, null]
+        dkim:
+          type: string
+          nullable: true
+          enum: [pass, fail, none, neutral, temperror, permerror, unknown, null]
+        subject:
+          type: string
+          nullable: true
+          example: Test message
+        direction:
+          type: object
+          properties:
+            origin:
+              $ref: '#/components/schemas/EndpointSummary'
+            destination:
+              $ref: '#/components/schemas/EndpointSummary'
+    EndpointSummary:
+      type: object
+      properties:
+        host:
+          type: string
+          nullable: true
+        ip:
+          type: string
+          nullable: true
     ErrorResponse:
       type: object
       required: [ok, error]
@@ -133,7 +206,7 @@ components:
           properties:
             code:
               type: string
-              enum: [unauthorized, missing_headers, invalid_headers]
+              enum: [unauthorized, missing_headers, invalid_headers, invalid_fields]
             message:
               type: string
     Analysis:
