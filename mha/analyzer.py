@@ -236,6 +236,38 @@ def _spf_ip_from_text(text: str) -> Optional[str]:
     return _first_public_ip(text or "")
 
 
+def _authenticated_source_ip(parsed) -> Optional[str]:
+    auth_text = "\n".join(
+        (parsed.get_all("Received-SPF") or [])
+        + (parsed.get_all("Authentication-Results") or [])
+        + (parsed.get_all("Authentication-Results-Original") or [])
+        + (parsed.get_all("X-Forefront-Antispam-Report") or [])
+        + (parsed.get_all("X-MS-Exchange-CrossTenant-OriginalAttributedTenantConnectingIp") or [])
+    )
+    return _spf_ip_from_text(auth_text)
+
+
+def _host_for_route_ip(route: List[Dict[str, Any]], source_ip: Optional[str]) -> Optional[str]:
+    if not source_ip:
+        return None
+    for hop in route:
+        from_entity = hop.get("from") or {}
+        if source_ip in {from_entity.get("public_ip"), from_entity.get("ip")}:
+            return from_entity.get("host")
+    return None
+
+
+def _first_route_public_endpoint(route: List[Dict[str, Any]]) -> Dict[str, Optional[str]]:
+    fallback_host = None
+    for hop in route:
+        from_entity = hop.get("from") or {}
+        fallback_host = fallback_host or from_entity.get("host")
+        source_ip = from_entity.get("public_ip") or from_entity.get("ip")
+        if source_ip:
+            return {"ip": source_ip, "host": from_entity.get("host")}
+    return {"ip": None, "host": fallback_host}
+
+
 def _default_dns_lookup(name: str, record_type: str) -> List[str]:
     try:
         import dns.resolver  # type: ignore
@@ -497,13 +529,11 @@ def analyze_headers(raw_headers: str, country_lookup=None, dns_lookup=None, blac
 
     origin = route[0]["from"] if route else None
     destination = route[-1]["by"] if route else None
-    suspected_source_ip = None
-    suspected_source_host = None
-    for hop in route:
-        suspected_source_ip = hop["from"].get("public_ip") or hop["from"].get("ip")
-        suspected_source_host = hop["from"].get("host")
-        if suspected_source_ip or suspected_source_host:
-            break
+    origin_ip = (origin or {}).get("public_ip") or (origin or {}).get("ip")
+    authenticated_ip = _authenticated_source_ip(parsed)
+    route_endpoint = _first_route_public_endpoint(route)
+    suspected_source_ip = origin_ip or authenticated_ip or route_endpoint.get("ip")
+    suspected_source_host = _host_for_route_ip(route, suspected_source_ip) or route_endpoint.get("host")
 
     summary = {
         "from": get_header_value("From", raw_headers),

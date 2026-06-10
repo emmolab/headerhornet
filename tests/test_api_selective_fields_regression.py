@@ -89,6 +89,38 @@ def test_subject_does_not_capture_following_headers_without_space_after_colon():
     assert payload['results']['subject'] == 'Only this text'
 
 
+HALO_HEADERS_WITH_INTERNAL_SUBMISSION_BEFORE_EXTERNAL_GATEWAY = """Received: from final.example (::1) by mailbox.example with HTTPS; Thu, 4 Jun 2026 00:41:35 +0000
+Received: from mid.example (2603:10c6:10:246::11) by final.example with Microsoft SMTP Server; Thu, 4 Jun 2026 00:41:25 +0000
+Authentication-Results: spf=pass (sender IP is 13.70.157.244) smtp.mailfrom=sender.example; dkim=none (message not signed) header.d=none;dmarc=pass action=none header.from=sender.example;
+Received-SPF: Pass (protection.outlook.com: domain of sender.example designates 13.70.157.244 as permitted sender) receiver=protection.outlook.com; client-ip=13.70.157.244; helo=au2.smtp.exclaimer.net; pr=C
+Received: from au2.smtp.exclaimer.net (13.70.157.244) by protection.example (10.167.241.52) with Microsoft SMTP Server; Thu, 4 Jun 2026 00:41:23 +0000
+Received: from outbound.example (40.93.136.29) by au2.smtp.exclaimer.net (13.70.157.244) with Exclaimer Signature Manager ESMTP Proxy; Thu, 4 Jun 2026 00:41:25 +0000
+Received: from mailbox-origin.example (2603:10c6:10:12::13) by internal-relay.example with Microsoft SMTP Server; Thu, 4 Jun 2026 00:41:19 +0000
+Received: from mailbox-origin.example ([fe80::d0d3:834f:fb9f:a44d]) by mailbox-origin.example with mapi id 15.21.0071.015; Thu, 4 Jun 2026 00:41:19 +0000
+From: Sender <sender@sender.example>
+Subject: Internal submission before external gateway
+X-Forefront-Antispam-Report: CIP:13.70.157.244;CTRY:AU;H:au2.smtp.exclaimer.net;DIR:INT;
+"""
+
+
+def test_source_ip_prefers_spf_authenticated_gateway_over_internal_submission_hops():
+    client = app.test_client()
+
+    response = client.post(
+        '/api/v1/analyze?fields=spf,dkim,dmarc,source_host,source_ip,hops,direction',
+        json={'headers': HALO_HEADERS_WITH_INTERNAL_SUBMISSION_BEFORE_EXTERNAL_GATEWAY},
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload['results']['spf_verdict'] == 'pass'
+    assert payload['results']['dkim_verdict'] == 'none'
+    assert payload['results']['dmarc_verdict'] == 'pass'
+    assert payload['results']['source_ip'] == '13.70.157.244'
+    assert payload['results']['source_host'] == 'au2.smtp.exclaimer.net'
+    assert payload['results']['hop_count'] == 6
+
+
 def test_squashed_header_blob_is_rehydrated_before_analysis():
     client = app.test_client()
 
