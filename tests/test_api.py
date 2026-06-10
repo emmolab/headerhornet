@@ -1,7 +1,7 @@
 import logging
 
 from tests.test_analyzer import SAMPLE_HEADERS
-from mha.server import app
+from mha.server import app, _sanitize_header_input
 
 
 def test_analyze_api_accepts_json_headers():
@@ -70,6 +70,56 @@ def test_analyze_api_sanitizes_markdown_fenced_headers():
     assert response.status_code == 200
     payload = response.get_json()
     assert payload['analysis']['summary']['from'] == 'Sender <sender@sender.example>'
+
+
+def test_analyze_api_decodes_halo_html_wrapped_squashed_headers():
+    client = app.test_client()
+    halo_headers = (
+        '<div tabindex="-1" data-pasted="true"><div tabindex="0">'
+        'Received: from SY8PR01MB9220.ausprd01.prod.outlook.com (::1) by '
+        'SY7PR01MB9171.ausprd01.prod.outlook.com with HTTPS; Thu, 4 Jun 2026 00:41:35 +0000'
+        'Received: from SY1PEPF000066C2.ausprd01.prod.outlook.com (2603:10c6:10:246:cafe::4b) by '
+        'SY5PR01CA0112.outlook.office365.com (2603:10c6:10:246::11) with Microsoft SMTP Server; '
+        'Thu, 4 Jun 2026 00:41:25 +0000'
+        'Authentication-Results: spf=pass (sender IP is 13.70.157.244) '
+        'smtp.mailfrom=sender.example; dkim=none (message not signed) header.d=none;'
+        'dmarc=pass action=none header.from=sender.example;'
+        'Received-SPF: Pass (protection.outlook.com: domain of sender.example designates '
+        '13.70.157.244 as permitted sender) receiver=protection.outlook.com; '
+        'client-ip=13.70.157.244; helo=au2.smtp.exclaimer.net; pr=C'
+        'Received: from au2.smtp.exclaimer.net (13.70.157.244) by '
+        'SY1PEPF000066C2.mail.protection.outlook.com (10.167.241.52) with Microsoft SMTP Server; '
+        'Thu, 4 Jun 2026 00:41:23 +0000'
+        'X-ExclaimerHostedSignatures-MessageProcessed: true'
+        'X-ExclaimerProxyLatency: 31187596'
+        'From: Sender &lt;sender@sender.example&gt;'
+        'To: Recipient &lt;recipient@example.net&gt;'
+        'Subject: Reminder of workplace communication'
+        'Thread-Topic: Reminder of workplace communication'
+        'Message-ID: &lt;example-message-id@example.net&gt;'
+        '</div></div>'
+    )
+
+    response = client.post(
+        '/api/v1/analyze?fields=spf,dkim,dmarc,source_ip,hops,subject,direction',
+        json={'headers': halo_headers},
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload['results']['spf_verdict'] == 'pass'
+    assert payload['results']['dkim_verdict'] == 'none'
+    assert payload['results']['dmarc_verdict'] == 'pass'
+    assert payload['results']['source_ip'] == '13.70.157.244'
+    assert payload['results']['hop_count'] == 3
+    assert payload['results']['subject'] == 'Reminder of workplace communication'
+
+    normalized = _sanitize_header_input(halo_headers)
+    assert normalized.startswith('Received:')
+    assert '<div' not in normalized
+    assert '&lt;' not in normalized
+    assert 'Sender <sender@sender.example>' in normalized
+    assert '\nAuthentication-Results:' in normalized
 
 
 def test_analyze_api_logs_request_diagnostics_when_enabled(monkeypatch, caplog):

@@ -7,6 +7,7 @@ from email.parser import HeaderParser
 import argparse
 import hashlib
 import hmac
+import html
 import json
 import logging
 import os
@@ -171,6 +172,22 @@ def _strip_markdown_fence(value):
     return match.group('body') if match else value
 
 
+def _decode_html_header_wrapper(value):
+    if not isinstance(value, str):
+        return value
+    html_markers = ('<div', '<span', '<br', '</div', '</span', '&lt;', '&gt;', '&nbsp;', '&quot;', '&#')
+    if not any(marker in value.lower() for marker in html_markers):
+        return value
+
+    text = value
+    text = re.sub(r'(?i)<\s*br\s*/?\s*>', '\n', text)
+    text = re.sub(r'(?i)</\s*(?:div|p|li|tr)\s*>', '\n', text)
+    text = re.sub(r'(?i)<\s*(?:div|p|li|tr|td|span)\b[^>]*>', '', text)
+    text = re.sub(r'(?i)</\s*(?:td|span)\s*>', '', text)
+    text = re.sub(r'(?i)<\s*/?\s*[^>]+>', '', text)
+    return html.unescape(text)
+
+
 def _extract_headers_wrapper(value):
     text = value.strip()
 
@@ -238,6 +255,7 @@ def _sanitize_header_input(value):
     text = _strip_markdown_fence(text)
     text = _extract_headers_wrapper(text)
     text = _strip_markdown_fence(text)
+    text = _decode_html_header_wrapper(text)
     text = _decode_literal_newline_headers(text)
     text = _rehydrate_squashed_headers(text)
     return text.strip()

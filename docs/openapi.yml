@@ -25,7 +25,7 @@ paths:
   /api/v1/analyze:
     post:
       summary: Analyze email headers
-      description: Analyze raw RFC822 email headers. Requires an API key only when HEADERHORNET_API_KEY is configured. Accepts structured JSON/form fields as well as copy/paste-friendly raw text bodies. Also rehydrates SOAR/ticketing-system payloads that squash header boundaries into one long line.
+      description: Analyze raw RFC822 email headers. Requires an API key only when HEADERHORNET_API_KEY is configured. Accepts structured JSON/form fields as well as copy/paste-friendly raw text bodies. Also decodes HTML-wrapped pasted headers and rehydrates SOAR/ticketing-system payloads that squash header boundaries into one long line.
       operationId: analyzeHeaders
       security:
         - ApiKeyAuth: []
@@ -51,7 +51,7 @@ paths:
           text/plain:
             schema:
               type: string
-              description: Raw RFC822 email headers pasted directly into the request body. Surrounding Markdown code fences, invalid JSON-style wrappers, and squashed header boundaries are sanitized before analysis.
+              description: Raw RFC822 email headers pasted directly into the request body. Surrounding Markdown code fences, HTML wrappers/entities, invalid JSON-style wrappers, and squashed header boundaries are sanitized before analysis.
           message/rfc822:
             schema:
               type: string

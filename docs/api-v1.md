@@ -98,7 +98,7 @@ The endpoint is deliberately forgiving for analyst copy/paste workflows. It acce
 - `text/plain` or `message/rfc822` raw request bodies
 - common aliases: `headers`, `raw_headers`, `header_text`, or `message_headers`
 
-Before analysis, HeaderHornet normalizes line endings, strips surrounding Markdown code fences, recovers from the common invalid-JSON paste where raw multi-line headers are placed after `"headers": "` without escaping each newline, and rehydrates SOAR/ticketing-system payloads that squash headers into one long line such as `...+0000Received:` or `...trueX-Example:`.
+Before analysis, HeaderHornet normalizes line endings, strips surrounding Markdown code fences, decodes HTML-wrapped pasted headers from tools such as Halo PSA/Outlook (`<div ...>Received: ... &lt;sender@example.com&gt;</div>`), recovers from the common invalid-JSON paste where raw multi-line headers are placed after `"headers": "` without escaping each newline, and rehydrates SOAR/ticketing-system payloads that squash headers into one long line such as `...+0000Received:` or `...trueX-Example:`.
 
 #### Recommended copy/paste request
 
