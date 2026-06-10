@@ -5,8 +5,10 @@ from flask import request
 
 from email.parser import HeaderParser
 import argparse
+import hashlib
 import hmac
 import json
+import logging
 import os
 import re
 
@@ -33,6 +35,7 @@ except ModuleNotFoundError:  # Support running `python server.py` from inside ./
     )
 
 app = Flask(__name__)
+logger = logging.getLogger(__name__)
 reader = geoip2.database.Reader('%s/data/GeoLite2-Country.mmdb' % app.static_folder)
 
 
@@ -68,6 +71,73 @@ def country_processor():
 @app.context_processor
 def duration_processor():
     return dict(duration=human_duration)
+
+
+def _env_flag(name):
+    return os.environ.get(name, '').strip().lower() in {'1', 'true', 'yes', 'on'}
+
+
+def _safe_request_headers_for_log():
+    redacted = {}
+    for key, value in request.headers.items():
+        lower_key = key.lower()
+        if lower_key in {'authorization', 'x-api-key', 'cookie', 'set-cookie'}:
+            redacted[key] = '[REDACTED]'
+        else:
+            redacted[key] = value
+    return redacted
+
+
+def _request_text_digest(value):
+    text = value or ''
+    return hashlib.sha256(text.encode('utf-8', errors='replace')).hexdigest()
+
+
+def _line_count(value):
+    if not value:
+        return 0
+    return value.count('\n') + 1
+
+
+def _log_api_request_diagnostics(normalized_headers):
+    if not _env_flag('HEADERHORNET_LOG_API_REQUESTS'):
+        return
+
+    raw_body = request.get_data(as_text=True) or ''
+    include_body = _env_flag('HEADERHORNET_LOG_API_REQUEST_BODY')
+    diagnostics = [
+        'HeaderHornet API request diagnostics',
+        'method=%s path=%s query_string=%s' % (request.method, request.path, request.query_string.decode('utf-8', errors='replace')),
+        'remote_addr=%s content_type=%s mimetype=%s content_length=%s' % (
+            request.remote_addr,
+            request.content_type,
+            request.mimetype,
+            request.content_length,
+        ),
+        'request_headers=%s' % json.dumps(_safe_request_headers_for_log(), sort_keys=True),
+        'raw_body_length=%s raw_body_lines=%s raw_body_sha256=%s' % (
+            len(raw_body),
+            _line_count(raw_body),
+            _request_text_digest(raw_body),
+        ),
+        'normalized_headers_length=%s normalized_headers_lines=%s normalized_headers_sha256=%s' % (
+            len(normalized_headers or ''),
+            _line_count(normalized_headers or ''),
+            _request_text_digest(normalized_headers or ''),
+        ),
+    ]
+    if include_body:
+        diagnostics.extend([
+            'raw_body=<<<HEADERHORNET_RAW_REQUEST_BODY',
+            raw_body,
+            'HEADERHORNET_RAW_REQUEST_BODY',
+            'normalized_headers=<<<HEADERHORNET_NORMALIZED_HEADERS',
+            normalized_headers or '',
+            'HEADERHORNET_NORMALIZED_HEADERS',
+        ])
+    else:
+        diagnostics.append('Set HEADERHORNET_LOG_API_REQUEST_BODY=1 to include raw_body and normalized_headers in logs.')
+    logger.warning('\n'.join(diagnostics))
 
 
 def _build_delay_chart(analysis):
@@ -402,6 +472,7 @@ def api_analyze():
         return auth_error
 
     headers = _headers_from_request()
+    _log_api_request_diagnostics(headers)
     if not headers:
         return jsonify({
             'ok': False,

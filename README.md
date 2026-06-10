@@ -217,6 +217,24 @@ docker compose down
 
 Set `HEADERHORNET_DEBUG=1` in `.env` only for local development.
 
+### API request diagnostics
+
+When debugging SOAR/ticketing integrations, enable temporary request diagnostics so `docker logs` shows what HeaderHornet received and what it normalized before analysis:
+
+```env
+HEADERHORNET_LOG_API_REQUESTS=1
+HEADERHORNET_LOG_API_REQUEST_BODY=1
+```
+
+Then recreate the container and reproduce one request:
+
+```bash
+docker compose up -d --force-recreate
+docker logs --since 10m <headerhornet-container-name>
+```
+
+`HEADERHORNET_LOG_API_REQUESTS=1` logs method, path, query string, content type, redacted request headers, body lengths, line counts, and SHA-256 digests. `HEADERHORNET_LOG_API_REQUEST_BODY=1` additionally logs the full raw request body and normalized headers; only use it temporarily because email headers can contain personal data. `Authorization`, `X-API-Key`, and cookie headers are redacted.
+
 ## Upstream credit
 
 HeaderHornet is a maintained fork/customization of CyberDefenders Email Header Analyzer. The upstream project deserves credit for the original Flask application, parsing approach, UI foundation, and bundled static assets. Changes in this fork focus on API access, structured automation output, and product modernization.

@@ -48,6 +48,24 @@ Docker Compose example:
 HEADERHORNET_API_KEY=replace-with-a-long-random-value
 ```
 
+## Temporary API request diagnostics
+
+For SOAR/ticketing integration debugging, HeaderHornet can log what the API received before analysis. This is disabled by default.
+
+```env
+HEADERHORNET_LOG_API_REQUESTS=1
+HEADERHORNET_LOG_API_REQUEST_BODY=1
+```
+
+With only `HEADERHORNET_LOG_API_REQUESTS=1`, logs include method, path, query string, content type, redacted request headers, body lengths, line counts, and SHA-256 digests. Adding `HEADERHORNET_LOG_API_REQUEST_BODY=1` also logs the full raw request body and the normalized headers that HeaderHornet will analyze. Use body logging briefly and turn it off after collecting evidence, because raw email headers can contain personal data. `Authorization`, `X-API-Key`, and cookie headers are redacted.
+
+After enabling the variables, recreate the container, send one test request, then collect logs:
+
+```bash
+docker compose up -d --force-recreate
+docker logs --since 10m <headerhornet-container-name>
+```
+
 ## Endpoints
 
 ### GET /api/v1/health

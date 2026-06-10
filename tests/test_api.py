@@ -1,3 +1,5 @@
+import logging
+
 from tests.test_analyzer import SAMPLE_HEADERS
 from mha.server import app
 
@@ -68,6 +70,29 @@ def test_analyze_api_sanitizes_markdown_fenced_headers():
     assert response.status_code == 200
     payload = response.get_json()
     assert payload['analysis']['summary']['from'] == 'Sender <sender@sender.example>'
+
+
+def test_analyze_api_logs_request_diagnostics_when_enabled(monkeypatch, caplog):
+    monkeypatch.setenv('HEADERHORNET_LOG_API_REQUESTS', '1')
+    monkeypatch.setenv('HEADERHORNET_LOG_API_REQUEST_BODY', '1')
+    client = app.test_client()
+
+    with caplog.at_level(logging.INFO, logger='mha.server'):
+        response = client.post(
+            '/api/v1/analyze?fields=spf,source_ip',
+            json={'headers': SAMPLE_HEADERS},
+            headers={'X-API-Key': 'should-not-be-logged'},
+        )
+
+    assert response.status_code == 200
+    log_output = '\n'.join(record.getMessage() for record in caplog.records)
+    assert 'HeaderHornet API request diagnostics' in log_output
+    assert 'query_string=fields=spf,source_ip' in log_output
+    assert 'content_type=application/json' in log_output
+    assert 'raw_body=' in log_output
+    assert 'normalized_headers=' in log_output
+    assert 'Authentication-Results:' in log_output
+    assert 'should-not-be-logged' not in log_output
 
 
 def test_analyze_api_rejects_missing_headers():
